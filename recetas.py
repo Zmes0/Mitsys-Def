@@ -1,0 +1,372 @@
+"""
+Módulo de gestión de recetas
+"""
+import tkinter as tk
+from tkinter import ttk, messagebox
+from config import COLORS, FONTS
+from database import db
+
+class RecetasWindow:
+    def __init__(self, parent):
+        self.window = tk.Toplevel(parent)
+        self.window.title("Recetas - Mitsy's POS")
+        self.window.geometry("1200x700")
+        self.window.configure(bg=COLORS['bg_primary'])
+        
+        self.setup_ui()
+        self.load_recetas()
+    
+    def setup_ui(self):
+        """Configura la interfaz de usuario"""
+        main_frame = tk.Frame(self.window, bg=COLORS['bg_primary'])
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Título
+        title_label = tk.Label(main_frame, text="Recetas", 
+                              font=FONTS['title'], bg=COLORS['bg_primary'],
+                              fg=COLORS['text_primary'])
+        title_label.pack(pady=(0, 20))
+        
+        # Frame de búsqueda
+        search_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        search_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(search_frame, text="Buscar:", font=FONTS['normal'],
+                bg=COLORS['bg_primary']).pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.search_var = tk.StringVar()
+        self.search_var.trace('w', lambda *args: self.search_recetas())
+        search_entry = tk.Entry(search_frame, textvariable=self.search_var,
+                               font=FONTS['normal'], width=40)
+        search_entry.pack(side=tk.LEFT, padx=(0, 20))
+        
+        tk.Button(search_frame, text="Limpiar Filtro", command=self.clear_filter,
+                 font=FONTS['button'], bg=COLORS['button_bg'],
+                 relief=tk.RAISED, borderwidth=2, padx=15, pady=5).pack(side=tk.LEFT)
+        
+        # Frame con scrollbar para la tabla
+        table_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        table_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 20))
+        
+        scrollbar = ttk.Scrollbar(table_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Treeview (tabla)
+        columns = ('ID Receta', 'ID Producto', 'Producto', 'ID Ingrediente', 
+                   'Ingrediente', 'Cantidad Requerida', 'Unidad')
+        
+        self.tree = ttk.Treeview(table_frame, columns=columns, show='headings',
+                                yscrollcommand=scrollbar.set, selectmode='extended')
+        
+        # Configurar columnas
+        self.tree.heading('ID Receta', text='ID Receta')
+        self.tree.heading('ID Producto', text='ID Producto')
+        self.tree.heading('Producto', text='Producto')
+        self.tree.heading('ID Ingrediente', text='ID Ingrediente')
+        self.tree.heading('Ingrediente', text='Ingrediente')
+        self.tree.heading('Cantidad Requerida', text='Cantidad Requerida')
+        self.tree.heading('Unidad', text='Unidad Porcionamiento')
+        
+        self.tree.column('ID Receta', width=100, anchor='center')
+        self.tree.column('ID Producto', width=100, anchor='center')
+        self.tree.column('Producto', width=200)
+        self.tree.column('ID Ingrediente', width=120, anchor='center')
+        self.tree.column('Ingrediente', width=200)
+        self.tree.column('Cantidad Requerida', width=150, anchor='e')
+        self.tree.column('Unidad', width=150, anchor='center')
+        
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.tree.yview)
+        
+        # Colores alternados
+        self.tree.tag_configure('evenrow', background=COLORS['table_row_even'])
+        self.tree.tag_configure('oddrow', background=COLORS['table_row_odd'])
+        
+        # Frame de botones
+        button_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        button_frame.pack(fill=tk.X)
+        
+        buttons = [
+            ("Regresar", self.close_window),
+            ("Modificar Receta", self.modificar_receta),
+            ("Borrar Receta", self.borrar_receta),
+            ("Agregar Receta", self.add_receta_dialog)
+        ]
+        
+        for text, command in buttons:
+            btn = tk.Button(button_frame, text=text, command=command,
+                          font=FONTS['button'], bg=COLORS['button_bg'],
+                          fg=COLORS['text_primary'], relief=tk.RAISED,
+                          borderwidth=2, padx=20, pady=10)
+            btn.pack(side=tk.LEFT, padx=5)
+    
+    def load_recetas(self):
+        """Carga las recetas en la tabla"""
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        recetas = db.get_todas_recetas()
+        
+        for idx, r in enumerate(recetas):
+            tag = 'evenrow' if idx % 2 == 0 else 'oddrow'
+            
+            values = (
+                r['id'],
+                r['id_producto'],
+                r['producto_nombre'],
+                r['id_ingrediente'],
+                r['ingrediente_nombre'],
+                f"{r['cantidad_requerida']:.2f}",
+                r['unidad_porcionamiento']
+            )
+            
+            self.tree.insert('', tk.END, values=values, tags=(tag,))
+    
+    def search_recetas(self):
+        """Busca recetas según el texto ingresado"""
+        from utils import normalize_text
+        query = normalize_text(self.search_var.get())
+        
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        if not query:
+            self.load_recetas()
+            return
+        
+        recetas = db.get_todas_recetas()
+        filtered = [r for r in recetas 
+                   if query in normalize_text(r['producto_nombre']) or
+                      query in normalize_text(r['ingrediente_nombre'])]
+        
+        for idx, r in enumerate(filtered):
+            tag = 'evenrow' if idx % 2 == 0 else 'oddrow'
+            
+            values = (
+                r['id'],
+                r['id_producto'],
+                r['producto_nombre'],
+                r['id_ingrediente'],
+                r['ingrediente_nombre'],
+                f"{r['cantidad_requerida']:.2f}",
+                r['unidad_porcionamiento']
+            )
+            
+            self.tree.insert('', tk.END, values=values, tags=(tag,))
+    
+    def clear_filter(self):
+        """Limpia los filtros de búsqueda"""
+        self.search_var.set("")
+        self.load_recetas()
+    
+    def add_receta_dialog(self):
+        """Abre diálogo para añadir receta"""
+        RecetaDialog(self.window, callback=self.load_recetas)
+    
+    def modificar_receta(self):
+        """Abre diálogo para modificar receta"""
+        selection = self.tree.selection()
+        
+        if not selection:
+            messagebox.showwarning("Advertencia", 
+                                  "Por favor selecciona una receta para modificar")
+            return
+        
+        if len(selection) > 1:
+            messagebox.showwarning("Advertencia", 
+                                  "Por favor selecciona solo una receta para modificar")
+            return
+        
+        item = self.tree.item(selection[0])
+        receta_id = item['values'][0]
+        
+        RecetaDialog(self.window, receta_id=receta_id, callback=self.load_recetas)
+    
+    def borrar_receta(self):
+        """Elimina recetas seleccionadas"""
+        selection = self.tree.selection()
+        
+        if not selection:
+            messagebox.showwarning("Advertencia", 
+                                  "Por favor selecciona al menos una receta para borrar")
+            return
+        
+        if not messagebox.askyesno("Confirmar", 
+                                   f"¿Estás seguro de borrar {len(selection)} receta(s)?"):
+            return
+        
+        for item in selection:
+            receta_id = self.tree.item(item)['values'][0]
+            db.delete_receta(receta_id)
+        
+        messagebox.showinfo("Éxito", "Receta(s) eliminada(s) correctamente")
+        self.load_recetas()
+    
+    def close_window(self):
+        """Cierra la ventana"""
+        self.window.destroy()
+
+
+class RecetaDialog:
+    def __init__(self, parent, receta_id=None, callback=None):
+        self.receta_id = receta_id
+        self.callback = callback
+        
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Añadir Receta" if not receta_id else "Modificar Receta")
+        self.dialog.geometry("450x450")
+        self.dialog.configure(bg=COLORS['bg_primary'])
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        # Centrar ventana
+        self.dialog.update_idletasks()
+        x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
+        self.dialog.geometry(f"+{x}+{y}")
+        
+        self.setup_ui()
+        
+        if receta_id:
+            self.load_receta_data()
+    
+    def setup_ui(self):
+        """Configura la interfaz del diálogo"""
+        main_frame = tk.Frame(self.dialog, bg=COLORS['bg_primary'])
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # ID (solo lectura si está editando)
+        if self.receta_id:
+            tk.Label(main_frame, text=f"ID Receta: {self.receta_id}", 
+                    font=FONTS['normal'], bg=COLORS['bg_primary']).pack(anchor='w', pady=5)
+        
+        # Producto
+        tk.Label(main_frame, text="Producto:", font=FONTS['normal'],
+                bg=COLORS['bg_primary']).pack(anchor='w', pady=(10, 5))
+        
+        self.producto_var = tk.StringVar()
+        self.producto_combo = ttk.Combobox(main_frame, textvariable=self.producto_var,
+                                          font=FONTS['normal'], state='readonly')
+        self.producto_combo.pack(fill=tk.X, pady=(0, 10))
+        
+        # Cargar productos
+        productos = db.get_productos()
+        self.productos_dict = {f"{p['nombre']} (ID: {p['id']})": p for p in productos}
+        self.producto_combo['values'] = list(self.productos_dict.keys())
+        
+        # Ingrediente
+        tk.Label(main_frame, text="Ingrediente:", font=FONTS['normal'],
+                bg=COLORS['bg_primary']).pack(anchor='w', pady=5)
+        
+        self.ingrediente_var = tk.StringVar()
+        self.ingrediente_combo = ttk.Combobox(main_frame, 
+                                             textvariable=self.ingrediente_var,
+                                             font=FONTS['normal'], state='readonly')
+        self.ingrediente_combo.pack(fill=tk.X, pady=(0, 10))
+        
+        # Cargar ingredientes
+        ingredientes = db.get_ingredientes()
+        self.ingredientes_dict = {f"{i['nombre']} (ID: {i['id']})": i 
+                                 for i in ingredientes}
+        self.ingrediente_combo['values'] = list(self.ingredientes_dict.keys())
+        
+        # Cantidad Requerida
+        tk.Label(main_frame, text="Cantidad Requerida:", font=FONTS['normal'],
+                bg=COLORS['bg_primary']).pack(anchor='w', pady=5)
+        self.cantidad_var = tk.StringVar()
+        tk.Entry(main_frame, textvariable=self.cantidad_var, 
+                font=FONTS['normal']).pack(fill=tk.X, pady=(0, 10))
+        
+        # Unidad de porcionamiento
+        tk.Label(main_frame, text="Unidad de Porcionamiento:", font=FONTS['normal'],
+                bg=COLORS['bg_primary']).pack(anchor='w', pady=5)
+        
+        unidad_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        unidad_frame.pack(anchor='w', pady=(0, 20))
+        
+        self.unidad_var = tk.StringVar(value='Kg')
+        for unidad in ['Pza', 'Kg', 'L']:
+            tk.Radiobutton(unidad_frame, text=unidad, variable=self.unidad_var,
+                          value=unidad, font=FONTS['normal'],
+                          bg=COLORS['bg_primary']).pack(side=tk.LEFT, padx=10)
+        
+        # Botones
+        button_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        button_frame.pack(pady=20)
+        
+        tk.Button(button_frame, text="Aceptar", command=self.save_receta,
+                 font=FONTS['button'], bg=COLORS['success'], fg='white',
+                 relief=tk.RAISED, borderwidth=2, padx=30, pady=10).pack(side=tk.LEFT, padx=10)
+        
+        tk.Button(button_frame, text="Cancelar", command=self.dialog.destroy,
+                 font=FONTS['button'], bg=COLORS['danger'], fg='white',
+                 relief=tk.RAISED, borderwidth=2, padx=30, pady=10).pack(side=tk.LEFT, padx=10)
+    
+    def load_receta_data(self):
+        """Carga los datos de la receta a editar"""
+        # Obtener receta de la base de datos
+        receta = db.cursor.execute('''
+            SELECT r.*, p.nombre as producto_nombre, i.nombre as ingrediente_nombre
+            FROM recetas r
+            JOIN productos p ON r.id_producto = p.id
+            JOIN ingredientes i ON r.id_ingrediente = i.id
+            WHERE r.id = ?
+        ''', (self.receta_id,)).fetchone()
+        
+        if not receta:
+            messagebox.showerror("Error", "Receta no encontrada")
+            self.dialog.destroy()
+            return
+        
+        receta = dict(receta)
+        
+        # Establecer valores
+        producto_key = f"{receta['producto_nombre']} (ID: {receta['id_producto']})"
+        self.producto_var.set(producto_key)
+        
+        ingrediente_key = f"{receta['ingrediente_nombre']} (ID: {receta['id_ingrediente']})"
+        self.ingrediente_var.set(ingrediente_key)
+        
+        self.cantidad_var.set(str(receta['cantidad_requerida']))
+        self.unidad_var.set(receta['unidad_porcionamiento'])
+    
+    def save_receta(self):
+        """Guarda la receta"""
+        # Validaciones
+        if not self.producto_var.get():
+            messagebox.showerror("Error", "Debe seleccionar un producto")
+            return
+        
+        if not self.ingrediente_var.get():
+            messagebox.showerror("Error", "Debe seleccionar un ingrediente")
+            return
+        
+        try:
+            cantidad = float(self.cantidad_var.get())
+            if cantidad <= 0:
+                raise ValueError()
+        except ValueError:
+            messagebox.showerror("Error", "La cantidad debe ser un número válido mayor a 0")
+            return
+        
+        producto = self.productos_dict[self.producto_var.get()]
+        ingrediente = self.ingredientes_dict[self.ingrediente_var.get()]
+        
+        try:
+            if self.receta_id:
+                # Actualizar receta
+                db.update_receta(self.receta_id, cantidad, self.unidad_var.get())
+            else:
+                # Crear nueva receta
+                db.add_receta(producto['id'], ingrediente['id'], 
+                            cantidad, self.unidad_var.get())
+            
+            messagebox.showinfo("Éxito", "Receta guardada correctamente")
+            
+            if self.callback:
+                self.callback()
+            
+            self.dialog.destroy()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al guardar receta: {str(e)}")
