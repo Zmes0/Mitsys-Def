@@ -8,14 +8,36 @@ from utils import format_currency
 from database import db
 
 class StockWindow:
-    def __init__(self, parent):
+    def __init__(self, parent, on_close=None):
+        self.on_close_callback = on_close
+        
         self.window = tk.Toplevel(parent)
         self.window.title("Gestión de Stock - Mitsy's POS")
         self.window.geometry("1300x700")
         self.window.configure(bg=COLORS['bg_primary'])
         
+        # Centrar ventana
+        self.center_window()
+        
+        # Forzar al frente
+        self.window.lift()
+        self.window.attributes('-topmost', True)
+        self.window.after(100, lambda: self.window.attributes('-topmost', False))
+        
+        # Protocolo de cierre
+        self.window.protocol("WM_DELETE_WINDOW", self.close_window)
+        
         self.setup_ui()
         self.load_stock()
+    
+    def center_window(self):
+        """Centra la ventana en la pantalla"""
+        self.window.update_idletasks()
+        width = 1300
+        height = 700
+        x = (self.window.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.window.winfo_screenheight() // 2) - (height // 2)
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
     
     def setup_ui(self):
         """Configura la interfaz de usuario"""
@@ -106,9 +128,9 @@ class StockWindow:
         # Colores alternados y alerta de stock bajo
         self.tree.tag_configure('evenrow', background=COLORS['table_row_even'])
         self.tree.tag_configure('oddrow', background=COLORS['table_row_odd'])
-        self.tree.tag_configure('low_stock', background='#FFCCCC')  # Rojo claro para stock bajo
+        self.tree.tag_configure('low_stock', background='#FFCCCC')
         
-        # Frame de botones
+        # Frame de botones (SIN Importar/Exportar Excel)
         button_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
         button_frame.pack(fill=tk.X)
         
@@ -133,7 +155,6 @@ class StockWindow:
         db.toggle_gestion_stock(activo)
         
         if activo:
-            # Actualizar todos los stocks estimados
             db.actualizar_todos_stocks_estimados()
             messagebox.showinfo("Gestión de Stock", 
                               "Gestión de stock activada. Los stocks estimados se calculan automáticamente.")
@@ -278,8 +299,10 @@ class StockWindow:
         ProductoDialog(self.window, callback=self.load_stock)
     
     def close_window(self):
-        """Cierra la ventana"""
+        """Cierra la ventana y vuelve al menú"""
         self.window.destroy()
+        if self.on_close_callback:
+            self.on_close_callback()
 
 
 class StockDialog:
@@ -294,14 +317,25 @@ class StockDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
+        # Forzar al frente
+        self.dialog.lift()
+        self.dialog.attributes('-topmost', True)
+        self.dialog.after(100, lambda: self.dialog.attributes('-topmost', False))
+        
         # Centrar ventana
-        self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
-        self.dialog.geometry(f"+{x}+{y}")
+        self.center_dialog()
         
         self.setup_ui()
         self.load_producto_data()
+    
+    def center_dialog(self):
+        """Centra el diálogo en la pantalla"""
+        self.dialog.update_idletasks()
+        width = 450
+        height = 400
+        x = (self.dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (height // 2)
+        self.dialog.geometry(f"{width}x{height}+{x}+{y}")
     
     def setup_ui(self):
         """Configura la interfaz del diálogo"""
@@ -394,7 +428,7 @@ class StockDialog:
             return
         
         try:
-            db.update_producto(self.producto_id,
+            db.update_producto(self.producto_id, self.producto_id,
                              stock_estimado=stock_estimado,
                              stock_minimo=stock_minimo,
                              gestion_stock=1 if self.gestion_var.get() else 0)
@@ -423,13 +457,24 @@ class RegistrarCompraProductoDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
+        # Forzar al frente
+        self.dialog.lift()
+        self.dialog.attributes('-topmost', True)
+        self.dialog.after(100, lambda: self.dialog.attributes('-topmost', False))
+        
         # Centrar ventana
-        self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
-        self.dialog.geometry(f"+{x}+{y}")
+        self.center_dialog()
         
         self.setup_ui()
+    
+    def center_dialog(self):
+        """Centra el diálogo en la pantalla"""
+        self.dialog.update_idletasks()
+        width = 400
+        height = 250
+        x = (self.dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (height // 2)
+        self.dialog.geometry(f"{width}x{height}+{x}+{y}")
     
     def setup_ui(self):
         """Configura la interfaz del diálogo"""
@@ -477,7 +522,7 @@ class RegistrarCompraProductoDialog:
             producto = db.get_producto(self.producto_id)
             nuevo_stock = producto['stock_estimado'] + cantidad
             
-            db.update_producto(self.producto_id, stock_estimado=nuevo_stock)
+            db.update_producto(self.producto_id, self.producto_id, stock_estimado=nuevo_stock)
             
             messagebox.showinfo("Éxito", f"Se registró la compra de {cantidad} unidades")
             

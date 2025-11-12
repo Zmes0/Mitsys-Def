@@ -14,35 +14,37 @@ class MitsysPOS:
         self.root.geometry("600x700")
         self.root.configure(bg=COLORS['bg_primary'])
         
-        # Centrar ventana principal
-        self.root.update_idletasks()
-        x = (self.root.winfo_screenwidth() // 2) - 300
-        y = (self.root.winfo_screenheight() // 2) - 350
-        self.root.geometry(f"600x700+{x}+{y}")
+        # NO OCULTAR LA VENTANA - Dejarla visible pero vacía
+        # La llenaremos después del splash
         
-        # NO ocultar temporalmente para evitar problemas
-        # self.root.withdraw()
+        # Centrar ventana principal
+        self.center_window(self.root, 600, 700)
         
         # Mostrar splash screen
         self.show_splash()
     
+    def center_window(self, window, width, height):
+        """Centra una ventana en la pantalla"""
+        window.update_idletasks()
+        x = (window.winfo_screenwidth() // 2) - (width // 2)
+        y = (window.winfo_screenheight() // 2) - (height // 2)
+        window.geometry(f"{width}x{height}+{x}+{y}")
+    
     def show_splash(self):
         """Muestra la pantalla de bienvenida"""
+        # Ocultar el root temporalmente
+        self.root.withdraw()
+        
         self.splash = tk.Toplevel(self.root)
         self.splash.title("")
-        self.splash.geometry("600x400")
-        self.splash.configure(bg=COLORS['bg_primary'])
-        self.splash.overrideredirect(True)
         
-        # Forzar al frente
-        self.splash.lift()
+        # Sin bordes y siempre al frente
+        self.splash.overrideredirect(True)
         self.splash.attributes('-topmost', True)
         
-        # Centrar
-        self.splash.update_idletasks()
-        x = (self.splash.winfo_screenwidth() // 2) - 300
-        y = (self.splash.winfo_screenheight() // 2) - 200
-        self.splash.geometry(f"600x400+{x}+{y}")
+        # Configurar
+        self.splash.configure(bg=COLORS['bg_primary'])
+        self.center_window(self.splash, 600, 400)
         
         # Contenido
         frame = tk.Frame(self.splash, bg=COLORS['bg_primary'])
@@ -63,10 +65,12 @@ class MitsysPOS:
     def close_splash(self):
         """Cierra el splash y continúa con el flujo"""
         try:
-            self.splash.attributes('-topmost', False)
             self.splash.destroy()
         except:
             pass
+        
+        # Mostrar root de nuevo
+        self.root.deiconify()
         
         # Verificar dinero en caja
         self.check_dinero_caja()
@@ -88,10 +92,14 @@ class MitsysPOS:
         for widget in self.root.winfo_children():
             widget.destroy()
         
+        # Asegurar que el root está visible
+        self.root.deiconify()
+        
         # Configurar ventana
         self.root.title("Mitsy's POS - Menú Principal")
+        self.center_window(self.root, 600, 700)
         
-        # FORZAR VENTANA AL FRENTE
+        # Forzar al frente
         self.root.lift()
         self.root.attributes('-topmost', True)
         self.root.after(100, lambda: self.root.attributes('-topmost', False))
@@ -118,19 +126,24 @@ class MitsysPOS:
             ("Stock", self.open_stock),
             ("Historial de Ventas", self.open_historial),
             ("Cortes", self.open_cortes),
+            ("Salir", self.salir)
         ]
         
         for text, command in menu_options:
+            # Color especial para el botón Salir
+            bg_color = COLORS['danger'] if text == "Salir" else COLORS['button_bg']
+            fg_color = 'white' if text == "Salir" else COLORS['text_primary']
+            
             btn = tk.Button(center_frame, text=text, command=command,
-                          font=FONTS['button'], bg=COLORS['button_bg'],
-                          fg=COLORS['text_primary'], relief=tk.RAISED,
-                          borderwidth=2, width=25, pady=15,
+                          font=FONTS['button'], bg=bg_color, fg=fg_color,
+                          relief=tk.RAISED, borderwidth=2, width=25, pady=15,
                           cursor='hand2')
             btn.pack(pady=10)
             
-            # Efecto hover
-            btn.bind('<Enter>', lambda e, b=btn: b.config(bg=COLORS['button_hover']))
-            btn.bind('<Leave>', lambda e, b=btn: b.config(bg=COLORS['button_bg']))
+            # Efecto hover (solo para botones que no sean "Salir")
+            if text != "Salir":
+                btn.bind('<Enter>', lambda e, b=btn: b.config(bg=COLORS['button_hover']))
+                btn.bind('<Leave>', lambda e, b=btn: b.config(bg=COLORS['button_bg']))
     
     def open_punto_venta(self):
         """Abre el módulo de punto de venta"""
@@ -138,23 +151,27 @@ class MitsysPOS:
     
     def open_productos(self):
         """Abre el módulo de productos"""
+        self.root.withdraw()  # Ocultar menú
         from productos import ProductosWindow
-        ProductosWindow(self.root)
+        ProductosWindow(self.root, on_close=self.on_module_close)
     
     def open_ingredientes(self):
         """Abre el módulo de ingredientes"""
+        self.root.withdraw()
         from ingredientes import IngredientesWindow
-        IngredientesWindow(self.root)
+        IngredientesWindow(self.root, on_close=self.on_module_close)
     
     def open_recetas(self):
         """Abre el módulo de recetas"""
+        self.root.withdraw()
         from recetas import RecetasWindow
-        RecetasWindow(self.root)
+        RecetasWindow(self.root, on_close=self.on_module_close)
     
     def open_stock(self):
         """Abre el módulo de stock"""
+        self.root.withdraw()
         from stock import StockWindow
-        StockWindow(self.root)
+        StockWindow(self.root, on_close=self.on_module_close)
     
     def open_historial(self):
         """Abre el módulo de historial de ventas"""
@@ -163,6 +180,16 @@ class MitsysPOS:
     def open_cortes(self):
         """Abre el módulo de cortes"""
         messagebox.showinfo("Próximamente", "Módulo de Cortes en PARTE 3")
+    
+    def on_module_close(self):
+        """Callback cuando se cierra un módulo - vuelve a mostrar el menú"""
+        self.show_main_menu()
+    
+    def salir(self):
+        """Cierra el programa"""
+        if messagebox.askyesno("Salir", "¿Estás seguro de que deseas salir del sistema?"):
+            self.root.quit()
+            self.root.destroy()
     
     def run(self):
         """Ejecuta la aplicación"""
@@ -176,7 +203,6 @@ class DineroCajaWindow:
         
         self.window = tk.Toplevel(parent)
         self.window.title("Ingresa el dinero en caja")
-        self.window.geometry("500x650")
         self.window.configure(bg=COLORS['bg_primary'])
         self.window.transient(parent)
         self.window.grab_set()
@@ -186,13 +212,14 @@ class DineroCajaWindow:
         self.window.attributes('-topmost', True)
         self.window.after(100, lambda: self.window.attributes('-topmost', False))
         
-        # Centrar ventana
-        self.window.update_idletasks()
-        x = (self.window.winfo_screenwidth() // 2) - 250
-        y = (self.window.winfo_screenheight() // 2) - 325
-        self.window.geometry(f"500x650+{x}+{y}")
-        
+        # Centrar ventana (MÁS ANCHA)
         self.setup_ui()
+        self.window.update_idletasks()
+        width = 600  # Aumentado de 500 a 600
+        height = 650
+        x = (self.window.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.window.winfo_screenheight() // 2) - (height // 2)
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
     
     def setup_ui(self):
         """Configura la interfaz"""
@@ -249,10 +276,10 @@ class DineroCajaWindow:
         total_frame.pack(fill=tk.X, pady=(10, 20))
         
         tk.Label(total_frame, text="Dinero en caja:", font=FONTS['heading'],
-                bg=COLORS['bg_primary']).pack(side=tk.LEFT)
+                bg=COLORS['bg_primary']).pack(side=tk.LEFT, padx=(0, 10))
         
         tk.Label(total_frame, textvariable=self.total_var, font=FONTS['heading'],
-                bg=COLORS['bg_primary'], fg=COLORS['accent']).pack(side=tk.LEFT, padx=10)
+                bg=COLORS['bg_primary'], fg=COLORS['accent']).pack(side=tk.LEFT)
         
         # Botón aceptar
         tk.Button(main_frame, text="Aceptar", command=self.accept,

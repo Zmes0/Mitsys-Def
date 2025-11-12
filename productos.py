@@ -10,16 +10,38 @@ from utils import format_currency, parse_currency, validate_float
 from database import db
 
 class ProductosWindow:
-    def __init__(self, parent):
+    def __init__(self, parent, on_close=None):
+        self.on_close_callback = on_close
+        
         self.window = tk.Toplevel(parent)
         self.window.title("Productos - Mitsy's POS")
         self.window.geometry("1200x700")
         self.window.configure(bg=COLORS['bg_primary'])
         
+        # Centrar ventana
+        self.center_window()
+        
+        # Forzar al frente
+        self.window.lift()
+        self.window.attributes('-topmost', True)
+        self.window.after(100, lambda: self.window.attributes('-topmost', False))
+        
+        # Protocolo de cierre
+        self.window.protocol("WM_DELETE_WINDOW", self.close_window)
+        
         self.selected_items = []
         
         self.setup_ui()
         self.load_productos()
+    
+    def center_window(self):
+        """Centra la ventana en la pantalla"""
+        self.window.update_idletasks()
+        width = 1200
+        height = 700
+        x = (self.window.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.window.winfo_screenheight() // 2) - (height // 2)
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
     
     def setup_ui(self):
         """Configura la interfaz de usuario"""
@@ -88,7 +110,7 @@ class ProductosWindow:
         self.tree.tag_configure('evenrow', background=COLORS['table_row_even'])
         self.tree.tag_configure('oddrow', background=COLORS['table_row_odd'])
         
-        # Frame de botones
+        # Frame de botones (SIN botón "Gestión Stock")
         button_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
         button_frame.pack(fill=tk.X)
         
@@ -96,8 +118,7 @@ class ProductosWindow:
             ("Regresar", self.close_window),
             ("Editar Producto", self.editar_producto),
             ("Borrar Producto", self.borrar_producto),
-            ("Añadir Producto", self.add_producto_dialog),
-            ("Gestión Stock", self.abrir_stock)
+            ("Añadir Producto", self.add_producto_dialog)
         ]
         
         for text, command in buttons:
@@ -207,14 +228,11 @@ class ProductosWindow:
         messagebox.showinfo("Éxito", "Producto(s) eliminado(s) correctamente")
         self.load_productos()
     
-    def abrir_stock(self):
-        """Abre la ventana de gestión de stock"""
-        from stock import StockWindow
-        StockWindow(self.window)
-    
     def close_window(self):
-        """Cierra la ventana"""
+        """Cierra la ventana y vuelve al menú"""
         self.window.destroy()
+        if self.on_close_callback:
+            self.on_close_callback()
 
 
 class ProductoDialog:
@@ -225,31 +243,64 @@ class ProductoDialog:
         
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Añadir Producto" if not producto_id else "Editar Producto")
-        self.dialog.geometry("500x700")
         self.dialog.configure(bg=COLORS['bg_primary'])
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
-        # Centrar ventana
-        self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
-        self.dialog.geometry(f"+{x}+{y}")
+        # Forzar al frente
+        self.dialog.lift()
+        self.dialog.attributes('-topmost', True)
+        self.dialog.after(100, lambda: self.dialog.attributes('-topmost', False))
         
         self.setup_ui()
+        
+        # Centrar después de crear UI
+        self.center_dialog()
         
         if producto_id:
             self.load_producto_data()
     
+    def center_dialog(self):
+        """Centra el diálogo en la pantalla"""
+        self.dialog.update_idletasks()
+        width = self.dialog.winfo_width()
+        height = self.dialog.winfo_height()
+        x = (self.dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (height // 2)
+        self.dialog.geometry(f"+{x}+{y}")
+    
     def setup_ui(self):
         """Configura la interfaz del diálogo"""
-        main_frame = tk.Frame(self.dialog, bg=COLORS['bg_primary'])
+        # Frame principal con scrollbar
+        main_canvas = tk.Canvas(self.dialog, bg=COLORS['bg_primary'], 
+                               highlightthickness=0, width=500)
+        scrollbar = tk.Scrollbar(self.dialog, orient="vertical", 
+                                command=main_canvas.yview)
+        
+        self.scrollable_frame = tk.Frame(main_canvas, bg=COLORS['bg_primary'])
+        
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+        )
+        
+        main_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        main_canvas.configure(yscrollcommand=scrollbar.set)
+        
+        main_frame = tk.Frame(self.scrollable_frame, bg=COLORS['bg_primary'])
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
-        # ID (solo lectura si está editando)
-        if self.producto_id:
-            tk.Label(main_frame, text=f"ID: {self.producto_id}", 
-                    font=FONTS['normal'], bg=COLORS['bg_primary']).pack(anchor='w', pady=5)
+        # ID (editable)
+        tk.Label(main_frame, text="ID:", font=FONTS['normal'],
+                bg=COLORS['bg_primary']).pack(anchor='w', pady=(10, 5))
+        self.id_var = tk.StringVar()
+        if not self.producto_id:
+            self.id_var.set(str(db.get_next_producto_id()))
+        else:
+            self.id_var.set(str(self.producto_id))
+        
+        tk.Entry(main_frame, textvariable=self.id_var, font=FONTS['normal'],
+                width=40).pack(fill=tk.X, pady=(0, 10))
         
         # Nombre
         tk.Label(main_frame, text="Nombre:", font=FONTS['normal'],
@@ -307,7 +358,7 @@ class ProductoDialog:
                       value=False, font=FONTS['normal'],
                       bg=COLORS['bg_primary']).pack(side=tk.LEFT, padx=10)
         
-        # Frame de ingredientes (se muestra solo si gestión = Sí)
+        # Frame de ingredientes (inicialmente oculto)
         self.ingredientes_frame = tk.Frame(main_frame, bg=COLORS['bg_secondary'],
                                           relief=tk.SUNKEN, borderwidth=2)
         
@@ -347,13 +398,27 @@ class ProductoDialog:
         tk.Button(button_frame, text="Cancelar", command=self.dialog.destroy,
                  font=FONTS['button'], bg=COLORS['danger'], fg='white',
                  relief=tk.RAISED, borderwidth=2, padx=30, pady=10).pack(side=tk.LEFT, padx=10)
+        
+        # Empaquetar canvas y scrollbar
+        main_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Inicializar tamaño
+        self.dialog.geometry("550x700")
     
     def toggle_ingredientes(self, *args):
-        """Muestra/oculta el frame de ingredientes"""
+        """Muestra/oculta el frame de ingredientes y ajusta el tamaño de la ventana"""
         if self.gestion_var.get():
             self.ingredientes_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+            # Aumentar altura de la ventana
+            self.dialog.geometry("550x900")
         else:
             self.ingredientes_frame.pack_forget()
+            # Restaurar altura original
+            self.dialog.geometry("550x700")
+        
+        # Recentrar después de cambiar tamaño
+        self.dialog.after(10, self.center_dialog)
     
     def load_producto_data(self):
         """Carga los datos del producto a editar"""
@@ -364,6 +429,7 @@ class ProductoDialog:
             self.dialog.destroy()
             return
         
+        self.id_var.set(str(producto['id']))
         self.nombre_var.set(producto['nombre'])
         self.precio_var.set(str(producto['precio_unitario']))
         self.costo_var.set(str(producto['costo']))
@@ -403,6 +469,15 @@ class ProductoDialog:
     
     def save_producto(self):
         """Guarda el producto"""
+        # Validar ID
+        try:
+            new_id = int(self.id_var.get())
+            if new_id <= 0:
+                raise ValueError()
+        except ValueError:
+            messagebox.showerror("Error", "El ID debe ser un número entero positivo")
+            return
+        
         # Validaciones
         nombre = self.nombre_var.get().strip()
         if not nombre:
@@ -428,7 +503,7 @@ class ProductoDialog:
         try:
             if self.producto_id:
                 # Actualizar producto
-                db.update_producto(self.producto_id,
+                db.update_producto(self.producto_id, new_id,
                                  nombre=nombre,
                                  precio_unitario=precio,
                                  costo=costo,
@@ -437,21 +512,28 @@ class ProductoDialog:
                                  stock_estimado=stock)
                 
                 # Eliminar recetas anteriores
-                recetas_anteriores = db.get_recetas_producto(self.producto_id)
+                recetas_anteriores = db.get_recetas_producto(new_id)
                 for receta in recetas_anteriores:
                     db.delete_receta(receta['id'])
                 
-                producto_id = self.producto_id
+                producto_id = new_id
             else:
+                # Verificar si el ID ya existe
+                if db.id_exists('productos', new_id):
+                    messagebox.showerror("Error", f"El ID {new_id} ya existe")
+                    return
+                
                 # Crear nuevo producto
-                producto_id = db.add_producto(nombre, precio, costo,
+                producto_id = db.add_producto(new_id, nombre, precio, costo,
                                             self.unidad_var.get(), gestion,
                                             stock)
             
             # Añadir ingredientes (recetas)
             if gestion:
                 for ing in self.ingredientes_agregados:
-                    db.add_receta(producto_id, ing['id'], ing['cantidad'], ing['unidad'])
+                    receta_id = db.get_next_receta_id()
+                    db.add_receta(receta_id, producto_id, ing['id'], 
+                                ing['cantidad'], ing['unidad'])
             
             messagebox.showinfo("Éxito", "Producto guardado correctamente")
             
@@ -460,6 +542,8 @@ class ProductoDialog:
             
             self.dialog.destroy()
             
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
         except Exception as e:
             messagebox.showerror("Error", f"Error al guardar producto: {str(e)}")
 
@@ -475,13 +559,24 @@ class IngredienteRecetaDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
+        # Forzar al frente
+        self.dialog.lift()
+        self.dialog.attributes('-topmost', True)
+        self.dialog.after(100, lambda: self.dialog.attributes('-topmost', False))
+        
         # Centrar ventana
-        self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
-        self.dialog.geometry(f"+{x}+{y}")
+        self.center_dialog()
         
         self.setup_ui()
+    
+    def center_dialog(self):
+        """Centra el diálogo en la pantalla"""
+        self.dialog.update_idletasks()
+        width = 400
+        height = 300
+        x = (self.dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (height // 2)
+        self.dialog.geometry(f"{width}x{height}+{x}+{y}")
     
     def setup_ui(self):
         """Configura la interfaz"""
@@ -561,3 +656,4 @@ class IngredienteRecetaDialog:
             self.callback(data)
         
         self.dialog.destroy()
+        

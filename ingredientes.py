@@ -8,14 +8,36 @@ from utils import format_currency, validate_float
 from database import db
 
 class IngredientesWindow:
-    def __init__(self, parent):
+    def __init__(self, parent, on_close=None):
+        self.on_close_callback = on_close
+        
         self.window = tk.Toplevel(parent)
         self.window.title("Materia Prima - Mitsy's POS")
         self.window.geometry("1200x700")
         self.window.configure(bg=COLORS['bg_primary'])
         
+        # Centrar ventana
+        self.center_window()
+        
+        # Forzar al frente
+        self.window.lift()
+        self.window.attributes('-topmost', True)
+        self.window.after(100, lambda: self.window.attributes('-topmost', False))
+        
+        # Protocolo de cierre
+        self.window.protocol("WM_DELETE_WINDOW", self.close_window)
+        
         self.setup_ui()
         self.load_ingredientes()
+    
+    def center_window(self):
+        """Centra la ventana en la pantalla"""
+        self.window.update_idletasks()
+        width = 1200
+        height = 700
+        x = (self.window.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.window.winfo_screenheight() // 2) - (height // 2)
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
     
     def setup_ui(self):
         """Configura la interfaz de usuario"""
@@ -81,7 +103,7 @@ class IngredientesWindow:
         self.tree.tag_configure('evenrow', background=COLORS['table_row_even'])
         self.tree.tag_configure('oddrow', background=COLORS['table_row_odd'])
         
-        # Frame de botones
+        # Frame de botones (SIN Importar/Exportar Excel)
         button_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
         button_frame.pack(fill=tk.X)
         
@@ -222,8 +244,10 @@ class IngredientesWindow:
                              callback=self.load_ingredientes)
     
     def close_window(self):
-        """Cierra la ventana"""
+        """Cierra la ventana y vuelve al menú"""
         self.window.destroy()
+        if self.on_close_callback:
+            self.on_close_callback()
 
 
 class IngredienteDialog:
@@ -238,26 +262,44 @@ class IngredienteDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
+        # Forzar al frente
+        self.dialog.lift()
+        self.dialog.attributes('-topmost', True)
+        self.dialog.after(100, lambda: self.dialog.attributes('-topmost', False))
+        
         # Centrar ventana
-        self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
-        self.dialog.geometry(f"+{x}+{y}")
+        self.center_dialog()
         
         self.setup_ui()
         
         if ingrediente_id:
             self.load_ingrediente_data()
     
+    def center_dialog(self):
+        """Centra el diálogo en la pantalla"""
+        self.dialog.update_idletasks()
+        width = 450
+        height = 500
+        x = (self.dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (height // 2)
+        self.dialog.geometry(f"{width}x{height}+{x}+{y}")
+    
     def setup_ui(self):
         """Configura la interfaz del diálogo"""
         main_frame = tk.Frame(self.dialog, bg=COLORS['bg_primary'])
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
-        # ID (solo lectura si está editando)
-        if self.ingrediente_id:
-            tk.Label(main_frame, text=f"ID: {self.ingrediente_id}", 
-                    font=FONTS['normal'], bg=COLORS['bg_primary']).pack(anchor='w', pady=5)
+        # ID (editable)
+        tk.Label(main_frame, text="ID:", font=FONTS['normal'],
+                bg=COLORS['bg_primary']).pack(anchor='w', pady=(10, 5))
+        self.id_var = tk.StringVar()
+        if not self.ingrediente_id:
+            self.id_var.set(str(db.get_next_ingrediente_id()))
+        else:
+            self.id_var.set(str(self.ingrediente_id))
+        
+        tk.Entry(main_frame, textvariable=self.id_var, font=FONTS['normal'],
+                width=40).pack(fill=tk.X, pady=(0, 10))
         
         # Nombre
         tk.Label(main_frame, text="Nombre:", font=FONTS['normal'],
@@ -330,6 +372,7 @@ class IngredienteDialog:
             self.dialog.destroy()
             return
         
+        self.id_var.set(str(ingrediente['id']))
         self.nombre_var.set(ingrediente['nombre'])
         self.costo_var.set(str(ingrediente['costo_unitario']))
         self.unidad_var.set(ingrediente['unidad_almacen'])
@@ -338,6 +381,15 @@ class IngredienteDialog:
     
     def save_ingrediente(self):
         """Guarda el ingrediente"""
+        # Validar ID
+        try:
+            new_id = int(self.id_var.get())
+            if new_id <= 0:
+                raise ValueError()
+        except ValueError:
+            messagebox.showerror("Error", "El ID debe ser un número entero positivo")
+            return
+        
         # Validaciones
         nombre = self.nombre_var.get().strip()
         if not nombre:
@@ -354,7 +406,7 @@ class IngredienteDialog:
         try:
             if self.ingrediente_id:
                 # Actualizar ingrediente
-                db.update_ingrediente(self.ingrediente_id,
+                db.update_ingrediente(self.ingrediente_id, new_id,
                                     nombre=nombre,
                                     costo_unitario=costo,
                                     unidad_almacen=self.unidad_var.get(),
@@ -364,8 +416,13 @@ class IngredienteDialog:
                 # Actualizar stocks estimados de productos que usan este ingrediente
                 db.actualizar_todos_stocks_estimados()
             else:
+                # Verificar si el ID ya existe
+                if db.id_exists('ingredientes', new_id):
+                    messagebox.showerror("Error", f"El ID {new_id} ya existe")
+                    return
+                
                 # Crear nuevo ingrediente
-                db.add_ingrediente(nombre, costo, self.unidad_var.get(),
+                db.add_ingrediente(new_id, nombre, costo, self.unidad_var.get(),
                                  stock, self.gestion_var.get())
             
             messagebox.showinfo("Éxito", "Ingrediente guardado correctamente")
@@ -375,6 +432,8 @@ class IngredienteDialog:
             
             self.dialog.destroy()
             
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
         except Exception as e:
             messagebox.showerror("Error", f"Error al guardar ingrediente: {str(e)}")
 
@@ -392,13 +451,24 @@ class RegistrarCompraDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
+        # Forzar al frente
+        self.dialog.lift()
+        self.dialog.attributes('-topmost', True)
+        self.dialog.after(100, lambda: self.dialog.attributes('-topmost', False))
+        
         # Centrar ventana
-        self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
-        self.dialog.geometry(f"+{x}+{y}")
+        self.center_dialog()
         
         self.setup_ui()
+    
+    def center_dialog(self):
+        """Centra el diálogo en la pantalla"""
+        self.dialog.update_idletasks()
+        width = 400
+        height = 250
+        x = (self.dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (height // 2)
+        self.dialog.geometry(f"{width}x{height}+{x}+{y}")
     
     def setup_ui(self):
         """Configura la interfaz del diálogo"""

@@ -7,14 +7,36 @@ from config import COLORS, FONTS
 from database import db
 
 class RecetasWindow:
-    def __init__(self, parent):
+    def __init__(self, parent, on_close=None):
+        self.on_close_callback = on_close
+        
         self.window = tk.Toplevel(parent)
         self.window.title("Recetas - Mitsy's POS")
         self.window.geometry("1200x700")
         self.window.configure(bg=COLORS['bg_primary'])
         
+        # Centrar ventana
+        self.center_window()
+        
+        # Forzar al frente
+        self.window.lift()
+        self.window.attributes('-topmost', True)
+        self.window.after(100, lambda: self.window.attributes('-topmost', False))
+        
+        # Protocolo de cierre
+        self.window.protocol("WM_DELETE_WINDOW", self.close_window)
+        
         self.setup_ui()
         self.load_recetas()
+    
+    def center_window(self):
+        """Centra la ventana en la pantalla"""
+        self.window.update_idletasks()
+        width = 1200
+        height = 700
+        x = (self.window.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.window.winfo_screenheight() // 2) - (height // 2)
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
     
     def setup_ui(self):
         """Configura la interfaz de usuario"""
@@ -82,7 +104,7 @@ class RecetasWindow:
         self.tree.tag_configure('evenrow', background=COLORS['table_row_even'])
         self.tree.tag_configure('oddrow', background=COLORS['table_row_odd'])
         
-        # Frame de botones
+        # Frame de botones (SIN Importar/Exportar Excel)
         button_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
         button_frame.pack(fill=tk.X)
         
@@ -203,8 +225,10 @@ class RecetasWindow:
         self.load_recetas()
     
     def close_window(self):
-        """Cierra la ventana"""
+        """Cierra la ventana y vuelve al menú"""
         self.window.destroy()
+        if self.on_close_callback:
+            self.on_close_callback()
 
 
 class RecetaDialog:
@@ -214,31 +238,49 @@ class RecetaDialog:
         
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Añadir Receta" if not receta_id else "Modificar Receta")
-        self.dialog.geometry("450x450")
+        self.dialog.geometry("500x550")
         self.dialog.configure(bg=COLORS['bg_primary'])
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
+        # Forzar al frente
+        self.dialog.lift()
+        self.dialog.attributes('-topmost', True)
+        self.dialog.after(100, lambda: self.dialog.attributes('-topmost', False))
+        
         # Centrar ventana
-        self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
-        self.dialog.geometry(f"+{x}+{y}")
+        self.center_dialog()
         
         self.setup_ui()
         
         if receta_id:
             self.load_receta_data()
     
+    def center_dialog(self):
+        """Centra el diálogo en la pantalla"""
+        self.dialog.update_idletasks()
+        width = 500
+        height = 550
+        x = (self.dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (height // 2)
+        self.dialog.geometry(f"{width}x{height}+{x}+{y}")
+    
     def setup_ui(self):
         """Configura la interfaz del diálogo"""
         main_frame = tk.Frame(self.dialog, bg=COLORS['bg_primary'])
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
-        # ID (solo lectura si está editando)
-        if self.receta_id:
-            tk.Label(main_frame, text=f"ID Receta: {self.receta_id}", 
-                    font=FONTS['normal'], bg=COLORS['bg_primary']).pack(anchor='w', pady=5)
+        # ID (editable)
+        tk.Label(main_frame, text="ID Receta:", font=FONTS['normal'],
+                bg=COLORS['bg_primary']).pack(anchor='w', pady=(10, 5))
+        self.id_var = tk.StringVar()
+        if not self.receta_id:
+            self.id_var.set(str(db.get_next_receta_id()))
+        else:
+            self.id_var.set(str(self.receta_id))
+        
+        tk.Entry(main_frame, textvariable=self.id_var, font=FONTS['normal'],
+                width=40).pack(fill=tk.X, pady=(0, 10))
         
         # Producto
         tk.Label(main_frame, text="Producto:", font=FONTS['normal'],
@@ -304,21 +346,14 @@ class RecetaDialog:
     
     def load_receta_data(self):
         """Carga los datos de la receta a editar"""
-        # Obtener receta de la base de datos
-        receta = db.cursor.execute('''
-            SELECT r.*, p.nombre as producto_nombre, i.nombre as ingrediente_nombre
-            FROM recetas r
-            JOIN productos p ON r.id_producto = p.id
-            JOIN ingredientes i ON r.id_ingrediente = i.id
-            WHERE r.id = ?
-        ''', (self.receta_id,)).fetchone()
+        receta = db.get_receta(self.receta_id)
         
         if not receta:
             messagebox.showerror("Error", "Receta no encontrada")
             self.dialog.destroy()
             return
         
-        receta = dict(receta)
+        self.id_var.set(str(receta['id']))
         
         # Establecer valores
         producto_key = f"{receta['producto_nombre']} (ID: {receta['id_producto']})"
@@ -332,6 +367,15 @@ class RecetaDialog:
     
     def save_receta(self):
         """Guarda la receta"""
+        # Validar ID
+        try:
+            new_id = int(self.id_var.get())
+            if new_id <= 0:
+                raise ValueError()
+        except ValueError:
+            messagebox.showerror("Error", "El ID debe ser un número entero positivo")
+            return
+        
         # Validaciones
         if not self.producto_var.get():
             messagebox.showerror("Error", "Debe seleccionar un producto")
@@ -355,10 +399,19 @@ class RecetaDialog:
         try:
             if self.receta_id:
                 # Actualizar receta
-                db.update_receta(self.receta_id, cantidad, self.unidad_var.get())
+                db.update_receta(self.receta_id, new_id,
+                               id_producto=producto['id'],
+                               id_ingrediente=ingrediente['id'],
+                               cantidad_requerida=cantidad,
+                               unidad_porcionamiento=self.unidad_var.get())
             else:
+                # Verificar si el ID ya existe
+                if db.id_exists('recetas', new_id):
+                    messagebox.showerror("Error", f"El ID {new_id} ya existe")
+                    return
+                
                 # Crear nueva receta
-                db.add_receta(producto['id'], ingrediente['id'], 
+                db.add_receta(new_id, producto['id'], ingrediente['id'], 
                             cantidad, self.unidad_var.get())
             
             messagebox.showinfo("Éxito", "Receta guardada correctamente")
@@ -368,5 +421,7 @@ class RecetaDialog:
             
             self.dialog.destroy()
             
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
         except Exception as e:
             messagebox.showerror("Error", f"Error al guardar receta: {str(e)}")
