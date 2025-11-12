@@ -147,7 +147,9 @@ class MitsysPOS:
     
     def open_punto_venta(self):
         """Abre el módulo de punto de venta"""
-        messagebox.showinfo("Próximamente", "Módulo de Punto de Venta en PARTE 2")
+        self.root.withdraw()
+        from punto_venta import PuntoVentaWindow
+        PuntoVentaWindow(self.root, on_close=self.on_module_close)
     
     def open_productos(self):
         """Abre el módulo de productos"""

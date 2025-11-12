@@ -50,3 +50,25 @@ DENOMINACIONES = {
     'billetes': [500, 200, 100, 50, 20],
     'monedas': [10, 5, 2, 1]
 }
+
+# Configuración de punto de venta
+MESAS = [f"Mesa {i}" for i in range(1, 7)] + ["Para llevar"]
+
+# Información actualizada del negocio (para tickets)
+BUSINESS_INFO = {
+    'name': "Los Abuelos",
+    'subtitle': "Antojitos Mexicanos",
+    'address': "C. Liverpool 379, Colonia Ejidal, Reyes Acozac",
+    'city': "55757 San Lucas Xolox, Méx.",
+    'phone': "713-137-4243",
+    'logo_path': "images/logo.png"  # Ruta al logo
+}
+
+# Configuración de tickets
+TICKET_CONFIG = {
+    'width_mm': 58,  # Ancho del ticket en mm
+    'font_size_title': 12,
+    'font_size_normal': 9,
+    'font_size_small': 7,
+    'line_spacing': 1.2
+}

@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 import os
+from utils import get_current_datetime
 
 class Database:
     def __init__(self, db_path: str = "data/mitsys.db"):
@@ -582,6 +583,172 @@ class Database:
         
         # Actualizar stock estimado del producto
         self.actualizar_stock_estimado(id_producto)
+    
+    # ==================== VENTAS (continuación) ====================
+    
+    def get_next_numero_venta(self) -> int:
+        """Obtiene el siguiente número de venta"""
+        ultimo = self.get_config('ultimo_numero_venta')
+        return int(ultimo) + 1 if ultimo else 1
+    
+    def add_venta(self, numero_venta: int, producto: str, id_producto: int,
+                  cantidad: float, precio: float, total: float,
+                  metodo_pago: str = 'Efectivo', mesa: str = None, 
+                  propina: float = 0) -> int:
+        """Añade una venta"""
+        fecha = get_current_datetime()
+        
+        self.cursor.execute('''
+            INSERT INTO ventas (numero_venta, fecha, producto, id_producto, cantidad,
+                              precio_unitario, total, metodo_pago, mesa, propina)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (numero_venta, fecha, producto, id_producto, cantidad, precio, 
+              total, metodo_pago, mesa, propina))
+        
+        self.conn.commit()
+        
+        # Actualizar último número de venta
+        self.set_config('ultimo_numero_venta', str(numero_venta))
+        
+        return self.cursor.lastrowid
+    
+    def finalizar_venta(self, productos: list, metodo_pago: str, mesa: str = None,
+                       propina: float = 0) -> int:
+        """
+        Finaliza una venta completa
+        productos = [{'id': 1, 'nombre': 'Tacos', 'cantidad': 2, 'precio': 15.00, 'total': 30.00}, ...]
+        """
+        numero_venta = self.get_next_numero_venta()
+        
+        for prod in productos:
+            self.add_venta(numero_venta, prod['nombre'], prod['id'],
+                          prod['cantidad'], prod['precio'], prod['total'],
+                          metodo_pago, mesa, propina)
+            
+            # Descontar inventario si el producto gestiona stock
+            producto_db = self.get_producto(prod['id'])
+            if producto_db and producto_db['gestion_stock'] and self.is_gestion_stock_active():
+                self.descontar_inventario_por_venta(prod['id'], prod['cantidad'])
+        
+        return numero_venta
+    
+    # ==================== VENTAS PENDIENTES ====================
+    
+    def save_venta_pendiente(self, mesa: str, productos: list, total: float):
+        """Guarda una venta pendiente"""
+        import json
+        fecha = get_current_datetime()
+        productos_json = json.dumps(productos)
+        
+        # Verificar si ya existe una venta pendiente para esta mesa
+        self.cursor.execute('SELECT id FROM ventas_pendientes WHERE mesa = ?', (mesa,))
+        existing = self.cursor.fetchone()
+        
+        if existing:
+            # Actualizar
+            self.cursor.execute('''
+                UPDATE ventas_pendientes 
+                SET productos = ?, total = ?, fecha_creacion = ?
+                WHERE mesa = ?
+            ''', (productos_json, total, fecha, mesa))
+        else:
+            # Insertar
+            self.cursor.execute('''
+                INSERT INTO ventas_pendientes (mesa, productos, total, fecha_creacion)
+                VALUES (?, ?, ?, ?)
+            ''', (mesa, productos_json, total, fecha))
+        
+        self.conn.commit()
+    
+    def get_venta_pendiente(self, mesa: str) -> Optional[Dict]:
+        """Obtiene una venta pendiente de una mesa"""
+        import json
+        
+        self.cursor.execute('SELECT * FROM ventas_pendientes WHERE mesa = ?', (mesa,))
+        result = self.cursor.fetchone()
+        
+        if result:
+            venta = dict(result)
+            venta['productos'] = json.loads(venta['productos'])
+            return venta
+        
+        return None
+    
+    def delete_venta_pendiente(self, mesa: str):
+        """Elimina una venta pendiente"""
+        self.cursor.execute('DELETE FROM ventas_pendientes WHERE mesa = ?', (mesa,))
+        self.conn.commit()
+    
+    def get_mesas_con_ventas_pendientes(self) -> List[str]:
+        """Obtiene lista de mesas con ventas pendientes"""
+        self.cursor.execute('SELECT mesa FROM ventas_pendientes')
+        return [row['mesa'] for row in self.cursor.fetchall()]
+    
+    # ==================== CORTES ====================
+    
+    def get_next_numero_corte(self) -> int:
+        """Obtiene el siguiente número de corte"""
+        ultimo = self.get_config('ultimo_numero_corte')
+        return int(ultimo) + 1 if ultimo else 1
+    
+    def add_corte(self, dinero_caja: float, corte_final: float, 
+                  retiros: float = 0) -> int:
+        """Añade un corte de caja"""
+        numero_corte = self.get_next_numero_corte()
+        fecha = get_current_datetime()
+        
+        # Calcular corte esperado (dinero inicial + ventas - retiros)
+        dinero_inicial = float(self.get_config('dinero_inicial_dia') or 0)
+        
+        # Sumar todas las ventas del día (solo efectivo)
+        fecha_hoy = datetime.now().strftime('%d/%m/%Y')
+        self.cursor.execute('''
+            SELECT SUM(total) as total_ventas
+            FROM ventas
+            WHERE fecha LIKE ? AND metodo_pago = 'Efectivo'
+        ''', (f'{fecha_hoy}%',))
+        
+        result = self.cursor.fetchone()
+        total_ventas = result['total_ventas'] if result['total_ventas'] else 0
+        
+        # Calcular ganancias del día
+        self.cursor.execute('''
+            SELECT SUM(v.total) - SUM(p.costo * v.cantidad) as ganancias
+            FROM ventas v
+            JOIN productos p ON v.id_producto = p.id
+            WHERE v.fecha LIKE ?
+        ''', (f'{fecha_hoy}%',))
+        
+        result = self.cursor.fetchone()
+        ganancias = result['ganancias'] if result['ganancias'] else 0
+        
+        corte_esperado = dinero_inicial + total_ventas - retiros
+        diferencia = corte_final - corte_esperado
+        
+        # Determinar estado
+        if abs(diferencia) < 0.01:  # Tolerancia de 1 centavo
+            estado = 'Cuadrado'
+        elif diferencia > 0:
+            estado = 'Sobrante'
+        else:
+            estado = 'Faltante'
+        
+        self.cursor.execute('''
+            INSERT INTO cortes (numero_corte, fecha, dinero_en_caja, corte_final,
+                              corte_esperado, retiros, diferencia, estado, ganancias)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (numero_corte, fecha, dinero_caja, corte_final, corte_esperado,
+              retiros, diferencia, estado, ganancias))
+        
+        self.conn.commit()
+        
+        # Actualizar último número de corte
+        self.set_config('ultimo_numero_corte', str(numero_corte))
+        
+        # Resetear dinero ingresado para el próximo día
+        self.set_config('dinero_ingresado_hoy', '0')
+        
+        return numero_corte
 
 # Instancia global de la base de datos
 db = Database()
