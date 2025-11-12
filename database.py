@@ -596,6 +596,7 @@ class Database:
                   metodo_pago: str = 'Efectivo', mesa: str = None, 
                   propina: float = 0) -> int:
         """Añade una venta"""
+        from utils import get_current_datetime  # Import aquí por si acaso
         fecha = get_current_datetime()
         
         self.cursor.execute('''

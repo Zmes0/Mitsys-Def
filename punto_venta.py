@@ -444,7 +444,7 @@ class AgregarProductosWindow:
         
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Agregar Productos")
-        self.dialog.geometry("900x700")
+        self.dialog.geometry("1100x700")  # MÁS ANCHO para 4-5 productos por fila
         self.dialog.configure(bg=COLORS['bg_primary'])
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -453,6 +453,9 @@ class AgregarProductosWindow:
         self.dialog.lift()
         self.dialog.attributes('-topmost', True)
         self.dialog.after(100, lambda: self.dialog.attributes('-topmost', False))
+        
+        # Protocolo de cierre para limpiar eventos
+        self.dialog.protocol("WM_DELETE_WINDOW", self.close_dialog)
         
         # Centrar ventana
         self.center_dialog()
@@ -463,7 +466,7 @@ class AgregarProductosWindow:
     def center_dialog(self):
         """Centra el diálogo en la pantalla"""
         self.dialog.update_idletasks()
-        width = 900
+        width = 1100  # AUMENTADO
         height = 700
         x = (self.dialog.winfo_screenwidth() // 2) - (width // 2)
         y = (self.dialog.winfo_screenheight() // 2) - (height // 2)
@@ -510,25 +513,37 @@ class AgregarProductosWindow:
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Bind scroll con mouse wheel
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        # Bind scroll con mouse wheel solo a este canvas
+        self.canvas.bind("<Enter>", self._bind_mousewheel)
+        self.canvas.bind("<Leave>", self._unbind_mousewheel)
         
         # Botones inferiores
         button_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
         button_frame.pack(fill=tk.X, pady=(20, 0))
         
-        tk.Button(button_frame, text="Regresar", command=self.dialog.destroy,
+        tk.Button(button_frame, text="Regresar", command=self.close_dialog,
                  font=FONTS['button'], bg=COLORS['button_bg'],
                  fg=COLORS['text_primary'], relief=tk.RAISED,
                  borderwidth=2, padx=30, pady=10).pack(side=tk.LEFT, padx=5)
         
-        tk.Button(button_frame, text="Aceptar", command=self.dialog.destroy,
+        tk.Button(button_frame, text="Aceptar", command=self.close_dialog,
                  font=FONTS['button'], bg=COLORS['success'], fg='white',
                  relief=tk.RAISED, borderwidth=2, padx=30, pady=10).pack(side=tk.LEFT, padx=5)
     
+    def _bind_mousewheel(self, event):
+        """Vincula el scroll del mouse cuando entra al canvas"""
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+    
+    def _unbind_mousewheel(self, event):
+        """Desvincula el scroll del mouse cuando sale del canvas"""
+        self.canvas.unbind_all("<MouseWheel>")
+    
     def _on_mousewheel(self, event):
         """Maneja el scroll con la rueda del mouse"""
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        try:
+            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        except:
+            pass  # Si el canvas ya no existe, ignorar
     
     def load_productos(self):
         """Carga los productos en la galería"""
@@ -538,7 +553,7 @@ class AgregarProductosWindow:
         
         productos = db.get_productos()
         
-        # Crear grid de productos (3 columnas)
+        # Crear grid de productos (4 columnas para pantallas normales)
         row = 0
         col = 0
         
@@ -546,7 +561,7 @@ class AgregarProductosWindow:
             self.create_producto_card(producto, row, col)
             
             col += 1
-            if col > 2:  # 3 columnas
+            if col > 6:  # 4 COLUMNAS (0, 1, 2, 3)
                 col = 0
                 row += 1
     
@@ -554,19 +569,19 @@ class AgregarProductosWindow:
         """Crea una tarjeta de producto"""
         card = tk.Frame(self.scrollable_frame, bg=COLORS['bg_secondary'],
                        relief=tk.RAISED, borderwidth=2)
-        card.grid(row=row, column=col, padx=15, pady=15, sticky='nsew')
+        card.grid(row=row, column=col, padx=12, pady=12, sticky='nsew')  # PADDING REDUCIDO
         
-        # Imagen
+        # Imagen (MÁS PEQUEÑA)
         img_frame = tk.Frame(card, bg=COLORS['bg_secondary'], 
-                            width=150, height=150)
-        img_frame.pack(pady=10)
+                            width=120, height=120)  # REDUCIDO de 150 a 120
+        img_frame.pack(pady=8)
         img_frame.pack_propagate(False)
         
         try:
             if producto['imagen'] and os.path.exists(producto['imagen']):
                 # Cargar imagen del producto
                 img = Image.open(producto['imagen'])
-                img = img.resize((140, 140), Image.Resampling.LANCZOS)
+                img = img.resize((110, 110), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
             else:
                 # Crear placeholder
@@ -584,23 +599,23 @@ class AgregarProductosWindow:
         
         # Nombre
         nombre = producto['nombre']
-        if len(nombre) > 20:
-            nombre = nombre[:20] + "..."
+        if len(nombre) > 18:
+            nombre = nombre[:18] + "..."
         
-        tk.Label(card, text=nombre, font=FONTS['heading'],
-                bg=COLORS['bg_secondary'], wraplength=150).pack(pady=(0, 5))
+        tk.Label(card, text=nombre, font=FONTS['normal'],
+                bg=COLORS['bg_secondary'], wraplength=130).pack(pady=(0, 5))
         
         # Precio
         tk.Label(card, text=format_currency(producto['precio_unitario']),
                 font=FONTS['normal'], bg=COLORS['bg_secondary'],
-                fg=COLORS['accent']).pack(pady=(0, 10))
+                fg=COLORS['accent']).pack(pady=(0, 8))
         
         # Botón seleccionar
         btn = tk.Button(card, text="Seleccionar", 
                        command=lambda p=producto: self.select_producto(p),
-                       font=FONTS['button'], bg=COLORS['accent'], fg='white',
+                       font=FONTS['normal'], bg=COLORS['accent'], fg='white',
                        relief=tk.RAISED, borderwidth=2, cursor='hand2')
-        btn.pack(pady=(0, 10), padx=10, fill=tk.X)
+        btn.pack(pady=(0, 8), padx=8, fill=tk.X)
         
         # Hacer toda la tarjeta clickeable
         card.bind('<Button-1>', lambda e, p=producto: self.select_producto(p))
@@ -610,16 +625,16 @@ class AgregarProductosWindow:
     
     def create_placeholder_image(self):
         """Crea una imagen placeholder"""
-        img = Image.new('RGB', (140, 140), color=COLORS['table_header'])
+        img = Image.new('RGB', (110, 110), color=COLORS['table_header'])  # REDUCIDO
         
-        # Dibujar un icono simple (opcional)
+        # Dibujar un icono simple
         from PIL import ImageDraw
         draw = ImageDraw.Draw(img)
         
         # Dibujar rectángulo y texto
-        draw.rectangle([20, 20, 120, 120], outline='gray', width=3)
-        draw.text((45, 60), "Sin", fill='gray')
-        draw.text((35, 75), "Imagen", fill='gray')
+        draw.rectangle([15, 15, 95, 95], outline='gray', width=2)
+        draw.text((35, 45), "Sin", fill='gray')
+        draw.text((25, 60), "Imagen", fill='gray')
         
         return ImageTk.PhotoImage(img)
     
@@ -645,7 +660,7 @@ class AgregarProductosWindow:
             self.create_producto_card(producto, row, col)
             
             col += 1
-            if col > 2:
+            if col > 3:  # 4 COLUMNAS
                 col = 0
                 row += 1
     
@@ -657,7 +672,14 @@ class AgregarProductosWindow:
         """Callback cuando se confirma la cantidad"""
         if self.callback:
             self.callback(producto_data)
-
+    
+    def close_dialog(self):
+        """Cierra el diálogo y limpia eventos"""
+        try:
+            self.canvas.unbind_all("<MouseWheel>")
+        except:
+            pass
+        self.dialog.destroy()
 
 class CantidadProductoDialog:
     def __init__(self, parent, producto, callback=None):

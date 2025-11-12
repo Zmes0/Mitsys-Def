@@ -370,6 +370,22 @@ class ProductoDialog:
                                               font=FONTS['normal'], height=6)
         self.ingredientes_listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
+        # Imagen del producto
+        tk.Label(main_frame, text="Imagen del producto:", 
+                font=FONTS['normal'], bg=COLORS['bg_primary']).pack(anchor='w', pady=5)
+        
+        imagen_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        imagen_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.imagen_var = tk.StringVar()
+        imagen_entry = tk.Entry(imagen_frame, textvariable=self.imagen_var, 
+                               font=FONTS['normal'], state='readonly')
+        imagen_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        tk.Button(imagen_frame, text="Examinar", command=self.browse_image,
+                 font=FONTS['button'], bg=COLORS['button_bg'],
+                 relief=tk.RAISED, borderwidth=2, padx=15, pady=5).pack(side=tk.LEFT)
+        
         # Botón añadir ingrediente
         self.btn_add_ingrediente = tk.Button(self.ingredientes_frame, 
                                             text="Añadir Ingrediente",
@@ -449,6 +465,9 @@ class ProductoDialog:
                 })
             
             self.update_ingredientes_list()
+            
+        if producto.get('imagen'):
+            self.imagen_var.set(producto['imagen'])    
     
     def add_ingrediente_dialog(self):
         """Abre diálogo para añadir ingrediente"""
@@ -509,7 +528,8 @@ class ProductoDialog:
                                  costo=costo,
                                  unidad_medida=self.unidad_var.get(),
                                  gestion_stock=1 if gestion else 0,
-                                 stock_estimado=stock)
+                                 stock_estimado=stock,
+                                 imagen=self.imagen_var.get() or None)  # AÑADIR
                 
                 # Eliminar recetas anteriores
                 recetas_anteriores = db.get_recetas_producto(new_id)
@@ -526,7 +546,7 @@ class ProductoDialog:
                 # Crear nuevo producto
                 producto_id = db.add_producto(new_id, nombre, precio, costo,
                                             self.unidad_var.get(), gestion,
-                                            stock)
+                                            stock, imagen=self.imagen_var.get() or None)
             
             # Añadir ingredientes (recetas)
             if gestion:
@@ -546,7 +566,37 @@ class ProductoDialog:
             messagebox.showerror("Error", str(e))
         except Exception as e:
             messagebox.showerror("Error", f"Error al guardar producto: {str(e)}")
-
+            
+    def browse_image(self):
+        """Abre diálogo para seleccionar imagen"""
+        from tkinter import filedialog
+        
+        filename = filedialog.askopenfilename(
+            title="Seleccionar imagen del producto",
+            filetypes=[
+                ("Imágenes", "*.png *.jpg *.jpeg *.gif *.bmp"),
+                ("Todos los archivos", "*.*")
+            ]
+        )
+        
+        if filename:
+            # Copiar imagen a la carpeta images/productos/
+            import shutil
+            os.makedirs('images/productos', exist_ok=True)
+            
+            # Generar nombre único
+            from datetime import datetime
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            extension = os.path.splitext(filename)[1]
+            nuevo_nombre = f"producto_{timestamp}{extension}"
+            destino = os.path.join('images/productos', nuevo_nombre)
+            
+            try:
+                shutil.copy2(filename, destino)
+                self.imagen_var.set(destino)
+                messagebox.showinfo("Éxito", "Imagen cargada correctamente")
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al copiar imagen: {str(e)}")
 
 class IngredienteRecetaDialog:
     def __init__(self, parent, callback=None):
